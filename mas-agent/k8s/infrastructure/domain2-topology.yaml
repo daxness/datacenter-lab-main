@@ -1,0 +1,73 @@
+# domain2-topology.yaml
+#
+# Knowledge Base Domain 2 — Topology Store (Specification Issue 6)
+#
+# In the full MAS, the DCA is the sole writer, reconciling against the
+# Kubernetes API every 30 seconds. For MRA development, we seed it here
+# with values derived directly from your workload YAML files:
+#
+#   nginx:     requests cpu=50m  mem=32Mi  limits cpu=200m  mem=64Mi   replicas=3
+#   redis:     requests cpu=50m  mem=32Mi  limits cpu=200m  mem=64Mi   replicas=1
+#   stress-ng: requests cpu=100m mem=96Mi  limits cpu=500m  mem=128Mi  replicas=2
+#
+# cpu_request_per_replica is in millicores (50m → 50, 100m → 100)
+# memory_request_per_replica is in MiB (32Mi → 32, 96Mi → 96)
+# These values are used by the RSA sizing pipeline (Little's Law calculation).
+#
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mas-topology
+  namespace: mas-system
+  labels:
+    mas-domain: "2"
+    mas-component: topology
+data:
+  topology.json: |
+    {
+      "schema_version": 1,
+      "last_reconciled_ms": 0,
+      "reconciled_by": "init-seed",
+      "deployments": {
+        "workloads/nginx": {
+          "namespace": "workloads",
+          "deployment": "nginx",
+          "domain": "worker",
+          "cpu_request_per_replica": 50,
+          "memory_request_per_replica": 32,
+          "cpu_limit_per_replica": 200,
+          "memory_limit_per_replica": 64,
+          "min_replicas": 1,
+          "max_replicas": 6,
+          "last_seen_ms": 0
+        },
+        "workloads/redis": {
+          "namespace": "workloads",
+          "deployment": "redis",
+          "domain": "worker",
+          "cpu_request_per_replica": 50,
+          "memory_request_per_replica": 32,
+          "cpu_limit_per_replica": 200,
+          "memory_limit_per_replica": 64,
+          "min_replicas": 1,
+          "max_replicas": 3,
+          "last_seen_ms": 0
+        },
+        "workloads/stress-ng": {
+          "namespace": "workloads",
+          "deployment": "stress-ng",
+          "domain": "worker",
+          "cpu_request_per_replica": 100,
+          "memory_request_per_replica": 96,
+          "cpu_limit_per_replica": 500,
+          "memory_limit_per_replica": 128,
+          "min_replicas": 1,
+          "max_replicas": 5,
+          "last_seen_ms": 0
+        }
+      },
+      "peer_endpoints": {
+        "worker": "dca-worker.mas-system.svc.cluster.local:50051",
+        "control_plane": "dca-control-plane.mas-system.svc.cluster.local:50051"
+      }
+    }

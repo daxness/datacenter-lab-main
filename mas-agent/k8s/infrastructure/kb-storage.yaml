@@ -1,0 +1,52 @@
+# kb-storage.yaml
+#
+# Provides the shared PersistentVolume that all MAS agents mount to access
+# Domain 4 (audit log) and Domain 5 (coordination) SQLite databases.
+#
+# How this works in your K3D/WSL2 setup:
+#   1. k3d-config.yaml mounts ~/datacenter-lab-main/kb-storage → /mnt/kb
+#      inside every cluster node (server-0 + agent-0/1/2).
+#   2. This PersistentVolume tells Kubernetes that /mnt/kb is a usable volume.
+#   3. The PersistentVolumeClaim lets pods request that volume by name.
+#   4. Any pod that mounts "kb-shared-pvc" sees the same files on your WSL2 host.
+#
+# Result: writing to /mnt/kb/domain4/audit_log.db from any pod in the cluster
+# immediately appears at ~/datacenter-lab-main/kb-storage/domain4/audit_log.db
+# on your WSL2 host — you can inspect it with sqlite3 at any time.
+#
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: kb-shared-pv
+spec:
+  capacity:
+    storage: 2Gi
+  accessModes:
+    - ReadWriteMany    # Multiple pods across multiple nodes can mount simultaneously
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""    # Manual binding — bypasses k3s local-path StorageClass
+  hostPath:
+    path: /mnt/kb         # The path K3D injected into every node via volumes: in k3d-config.yaml
+    type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kb-shared-pvc
+  namespace: mas-system
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: ""
+  volumeName: kb-shared-pv    # Bind directly to the PV above — no dynamic provisioning
+  resources:
+    requests:
+      storage: 2Gi
+ 
+
+
+
+
+
+
+

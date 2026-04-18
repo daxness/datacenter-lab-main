@@ -1,0 +1,52 @@
+# domain1-policy.yaml
+#
+# Knowledge Base Domain 1 — Policy Store (Specification Section 5.1 of SA spec)
+#
+# This ConfigMap is the authoritative source of all system-wide policy.
+# In the full MAS, the SA is the sole writer — it overwrites this on every
+# POLICY_READY broadcast. For MRA development and testing, we seed it here
+# with values that exactly match your workload resource declarations
+# (nginx: 200m CPU / 64Mi memory limits, redis: 200m / 64Mi,
+#  stress-ng: 500m / 128Mi).
+#
+# The MRA reads this at Stage 1 of its startup sequence.
+# etcd stores it with 3-way replication (via K3D's embedded etcd).
+#
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mas-policy
+  namespace: mas-system
+  labels:
+    mas-domain: "1"
+    mas-component: policy
+data:
+  policy.json: |
+    {
+      "schema_version": 1,
+      "policy_version": 1,
+      "policy_timestamp": 0,
+      "sla_thresholds": {
+        "cpu_warning_pct": 0.70,
+        "cpu_critical_pct": 0.85,
+        "memory_warning_pct": 0.75,
+        "memory_critical_pct": 0.90
+      },
+      "replica_bounds": {
+        "workloads/nginx": {"min": 1, "max": 6},
+        "workloads/redis": {"min": 1, "max": 3},
+        "workloads/stress-ng": {"min": 1, "max": 5}
+      },
+      "cooldown_duration_seconds": 60,
+      "base_margin": 0.15,
+      "stability_threshold_N": 3,
+      "heartbeat_failure_threshold": 3,
+      "alert_storm_rate_threshold": 20,
+      "alert_storm_night_threshold": 10,
+      "scorer_weights": {
+        "resource": 0.40,
+        "disruption": 0.30,
+        "coordination": 0.20,
+        "margin": 0.10
+      }
+    }

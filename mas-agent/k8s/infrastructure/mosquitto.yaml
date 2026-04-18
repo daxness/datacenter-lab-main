@@ -1,0 +1,119 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mosquitto-config
+  namespace: mas-system
+data:
+  mosquitto.conf: |
+    listener 1883
+    allow_anonymous false
+    password_file /mosquitto/config/passwd
+    persistence true
+    persistence_location /mosquitto/data/
+    log_type error
+    log_type warning
+    log_type notice
+    log_type information
+    max_keepalive 120
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mqtt-credentials
+  namespace: mas-system
+type: Opaque
+stringData:
+  mra-password: "mra_password_2026"
+  pfa-password: "pfa_password_2026"
+  rsa-password: "rsa_password_2026"
+  dca-password: "dca_password_2026"
+  sa-password:  "sa_password_2026"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mosquitto
+  namespace: mas-system
+  labels:
+    app: mosquitto
+    mas-component: mqtt-broker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mosquitto
+  template:
+    metadata:
+      labels:
+        app: mosquitto
+    spec:
+      # Init container: uses mosquitto_passwd to generate a properly
+      # hashed password file before Mosquitto starts.
+      # Each -b call: mosquitto_passwd -b <file> <username> <password>
+      # The -c flag on the first call creates the file from scratch.
+      initContainers:
+        - name: passwd-init
+          image: eclipse-mosquitto:2.0
+          command:
+            - sh
+            - -c
+            - |
+              mosquitto_passwd -c -b /passwd/passwd mra mra_password_2026
+              mosquitto_passwd    -b /passwd/passwd pfa pfa_password_2026
+              mosquitto_passwd    -b /passwd/passwd rsa rsa_password_2026
+              mosquitto_passwd    -b /passwd/passwd dca dca_password_2026
+              mosquitto_passwd    -b /passwd/passwd sa  sa_password_2026
+              echo "Password file generated:"
+              cat /passwd/passwd
+          volumeMounts:
+            - name: passwd-volume
+              mountPath: /passwd
+      containers:
+        - name: mosquitto
+          image: eclipse-mosquitto:2.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 1883
+              name: mqtt
+          volumeMounts:
+            - name: config
+              mountPath: /mosquitto/config/mosquitto.conf
+              subPath: mosquitto.conf
+            - name: passwd-volume
+              mountPath: /mosquitto/config/passwd
+              subPath: passwd
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "32Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+          livenessProbe:
+            tcpSocket:
+              port: 1883
+            initialDelaySeconds: 10
+            periodSeconds: 15
+      volumes:
+        - name: config
+          configMap:
+            name: mosquitto-config
+        - name: passwd-volume
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mosquitto
+  namespace: mas-system
+  labels:
+    app: mosquitto
+spec:
+  selector:
+    app: mosquitto
+  ports:
+    - port: 1883
+      targetPort: 1883
+      name: mqtt
+      protocol: TCP
+  type: ClusterIP

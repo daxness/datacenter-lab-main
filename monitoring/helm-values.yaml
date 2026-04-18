@@ -1,0 +1,77 @@
+# ============================================================
+# kube-prometheus-stack values for k3d datacenter-lab
+# ============================================================
+
+# --- Prometheus ---
+prometheus:
+  prometheusSpec:
+    retention: 24h
+    nodeSelector:
+      role: master
+    tolerations:
+      - key: "node-role.kubernetes.io/control-plane"
+        operator: "Exists"
+        effect: "NoSchedule"
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+
+# --- Grafana ---
+grafana:
+  adminPassword: "Lab@2024!"
+  nodeSelector:
+    role: master
+  tolerations:
+    - key: "node-role.kubernetes.io/control-plane"
+      operator: "Exists"
+      effect: "NoSchedule"
+  service:
+    type: NodePort
+    nodePort: 32000
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "64Mi"
+    limits:
+      cpu: "200m"
+      memory: "256Mi"
+
+# --- Prometheus Operator (controller) ---
+prometheusOperator:
+  nodeSelector:
+    role: master
+  tolerations:
+    - key: "node-role.kubernetes.io/control-plane"
+      operator: "Exists"
+      effect: "NoSchedule"
+
+# --- kube-state-metrics ---
+kube-state-metrics:
+  nodeSelector:
+    role: master
+  tolerations:
+    - key: "node-role.kubernetes.io/control-plane"
+      operator: "Exists"
+      effect: "NoSchedule"
+  image:
+    tag: "v2.13.0"
+
+# --- AlertManager: disabled ---
+alertmanager:
+  enabled: false
+
+# --- node-exporter: runs on ALL nodes (DaemonSet — no selector needed) ---
+prometheus-node-exporter:
+  enabled: true
+  tolerations:
+    - key: "node-role.kubernetes.io/control-plane"
+      operator: "Exists"
+      effect: "NoSchedule"
+
+# --- Avoid pulling images on every restart ---
+global:
+  imagePullPolicy: IfNotPresent

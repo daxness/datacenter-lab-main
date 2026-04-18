@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stress-ng
+  namespace: workloads
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: stress-ng
+  template:
+    metadata:
+      labels:
+        app: stress-ng
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: role
+                    operator: In
+                    values:
+                      - worker
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: stress-ng
+      containers:
+        - name: stress-ng
+          image: alexeiled/stress-ng:0.12.05
+          imagePullPolicy: IfNotPresent
+          args:
+            - "--cpu"
+            - "0"
+            - "--vm"
+            - "0"
+            - "--vm-bytes"
+            - "64M"
+            - "--timeout"
+            - "0"
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "96Mi"
+            limits:
+              cpu: "600m"
+              memory: "128Mi"

@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mas-system
+  labels:
+    env: lab
+    managed-by: mas
+    # This label tells Prometheus to allow ServiceMonitor discovery
+    # in this namespace without additional configuration
+    prometheus.io/scrape: "true"
+ 

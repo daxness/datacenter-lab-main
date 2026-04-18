@@ -1,0 +1,47 @@
+apiVersion: k3d.io/v1alpha5
+kind: Simple
+
+metadata:
+  name: datacenter-lab
+
+image: rancher/k3s:v1.31.5-k3s1
+
+# --- Node topology: mirrors original 1 server + 3 agents ---
+servers: 1
+agents: 3
+
+# --- Port mappings: host → cluster (replaces VMnet1 NIC + port-forward) ---
+ports:
+  - port: 32000:32000        # Grafana NodePort
+    nodeFilters:
+      - loadbalancer
+  - port: 32001:32001        # Prometheus NodePort (reserved for Phase 7)
+    nodeFilters:
+      - loadbalancer
+
+# --- Volume mounts: expose WSL2 host directory into every cluster node ---
+# This makes /mnt/kb available inside ALL pods across ALL nodes.
+# Domain 4 (audit_log.db) and Domain 5 (coordination.db) live here.
+# IMPORTANT: replace /home/younes with your actual WSL2 home directory.
+# Run `echo $HOME` in WSL2 to confirm the correct path.
+volumes:
+  - volume: /home/younes/datacenter-lab-main/kb-storage:/mnt/kb
+    nodeFilters:
+      - all   # mount into server-0 AND agent-0, agent-1, agent-2
+
+# --- k3s server configuration ---
+options:
+  k3d:
+    wait: true               # Block until cluster is Ready
+    timeout: "120s"          # Fail fast if something is wrong
+  k3s:
+    extraArgs:
+      - arg: "--disable=traefik"        # We don't use ingress
+        nodeFilters:
+          - server:0
+      - arg: "--disable=servicelb"      # We use NodePort, not LoadBalancer
+        nodeFilters:
+          - server:0
+  kubeconfig:
+    updateDefaultKubeconfig: true       # Auto-merge into ~/.kube/config
+    switchCurrentContext: true          # Set as active context immediately

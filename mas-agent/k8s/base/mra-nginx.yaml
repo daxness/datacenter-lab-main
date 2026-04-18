@@ -1,0 +1,147 @@
+# mra-nginx.yaml
+#
+# MRA instance monitoring the "nginx" deployment in namespace "workloads".
+#
+# Key facts derived from your nginx-deployment.yaml:
+#   cpu request:  50m    cpu limit:  200m
+#   mem request:  32Mi   mem limit:  64Mi
+#   replicas:     3
+#
+# The Prometheus URL uses the service name produced by your helm install command:
+#   helm upgrade --install monitoring prometheus-community/kube-prometheus-stack
+# This produces the service: monitoring-kube-prometheus-prometheus.monitoring.svc.cluster.local
+#
+# imagePullPolicy: Never — the image is loaded directly into K3D nodes via:
+#   k3d image import mas-mra:latest --cluster datacenter-lab
+# No registry is needed. Never = "use what is already on the node, never pull."
+#
+# The pod has NO nodeSelector so it lands on any worker node
+# (the control-plane NoSchedule taint from node-config.sh prevents it from
+# landing on server-0 automatically — no extra config needed).
+#
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mra-nginx
+  namespace: mas-system
+  labels:
+    app: mas-mra
+    monitored-deployment: nginx
+    monitored-namespace: workloads
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mas-mra
+      monitored-deployment: nginx
+  template:
+    metadata:
+      labels:
+        app: mas-mra
+        monitored-deployment: nginx
+        monitored-namespace: workloads
+      annotations:
+        # Prometheus will scrape the /metrics endpoint on port 8000
+        # This matches the Domain 3 write path: MRA exposes gauges, Prometheus stores them
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      securityContext:
+        runAsUser: 1001      # matches the mra-agent uid in the Dockerfile
+        runAsGroup: 1000     # matches your WSL2 gid from Step 1
+        fsGroup: 1000        # all files created by this pod belong to group 1000
+      serviceAccountName: mra-sa
+      containers:
+        - name: mra
+          image: mas-mra:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8000
+              name: metrics
+              protocol: TCP
+          env:
+            # ---- Deployment identity ----
+            - name: MRA_NAMESPACE
+              value: "workloads"
+            - name: MRA_DEPLOYMENT
+              value: "nginx"
+
+            # ---- Prometheus ----
+            # Service name produced by: helm upgrade --install monitoring ...
+            - name: PROMETHEUS_URL
+              value: "http://monitoring-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090"
+            - name: CPU_RATE_WINDOW
+              value: "2m"
+            - name: SCRAPE_INTERVAL
+              value: "30"
+
+            # ---- MQTT ----
+            - name: MQTT_HOST
+              value: "mosquitto.mas-system.svc.cluster.local"
+            - name: MQTT_PORT
+              value: "1883"
+            - name: MQTT_USERNAME
+              value: "mra"
+            - name: MQTT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mqtt-credentials
+                  key: mra-password
+
+            # ---- Knowledge Base ----
+            - name: DOMAIN4_DB_PATH
+              value: "/mnt/kb/domain4/audit_log.db"
+
+            # ---- Pressure thresholds (seeded from Domain 1 ConfigMap defaults) ----
+            # The MRA will attempt to reload these from POLICY_READY at startup.
+            # These env vars are the fallback if SA is not yet running.
+            - name: CPU_WARNING_PCT
+              value: "0.70"
+            - name: CPU_CRITICAL_PCT
+              value: "0.85"
+            - name: MEMORY_WARNING_PCT
+              value: "0.75"
+            - name: MEMORY_CRITICAL_PCT
+              value: "0.90"
+            - name: WARNING_CONSECUTIVE
+              value: "2"
+
+            # ---- Lifecycle ----
+            - name: HEARTBEAT_INTERVAL
+              value: "15"
+            - name: STARTUP_TIMEOUT
+              value: "120"
+
+          volumeMounts:
+            - name: kb-storage
+              mountPath: /mnt/kb
+
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: 8000
+            initialDelaySeconds: 40
+            periodSeconds: 15
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+
+      volumes:
+        - name: kb-storage
+          persistentVolumeClaim:
+            claimName: kb-shared-pvc

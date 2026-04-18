@@ -1,0 +1,132 @@
+# kb-init-job.yaml
+#
+# One-time Kubernetes Job that creates the SQLite database schemas for:
+#   Domain 4: /mnt/kb/domain4/audit_log.db  (audit log — Issue 4 schema)
+#   Domain 5: /mnt/kb/domain5/coordination.db (coordination — Issue 6 schema)
+#
+# This job MUST complete before any MRA, RSA, PFA, or DCA pod starts.
+# It uses CREATE TABLE IF NOT EXISTS so it is safe to re-run if the cluster
+# is torn down and recreated — it will skip tables that already exist.
+#
+# After this job completes you can inspect the databases directly from WSL2:
+#   sqlite3 ~/datacenter-lab-main/kb-storage/domain4/audit_log.db ".tables"
+#   sqlite3 ~/datacenter-lab-main/kb-storage/domain5/coordination.db ".tables"
+#
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kb-init
+  namespace: mas-system
+  labels:
+    mas-component: kb-init
+spec:
+  ttlSecondsAfterFinished: 600    # Auto-delete the completed Job pod after 10 minutes
+  template:
+    spec:
+      spec:
+      securityContext:
+        runAsUser: 1001
+        runAsGroup: 1000
+        fsGroup: 1000
+      restartPolicy: OnFailure
+      containers:
+        - name: sqlite-init
+          image: python:3.11-slim
+          command:
+            - python3
+            - -c
+            - |
+              import sqlite3, os, sys
+ 
+              # ---- Domain 4: Audit log ----------------------------------------
+              db4 = "/mnt/kb/domain4/audit_log.db"
+              print(f"Initialising Domain 4 at {db4}")
+              conn4 = sqlite3.connect(db4)
+              conn4.execute("PRAGMA journal_mode=WAL")
+              conn4.execute("PRAGMA synchronous=NORMAL")
+              conn4.execute("""
+                CREATE TABLE IF NOT EXISTS audit_log (
+                  seq_id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                  record_type   TEXT    NOT NULL,
+                  writer_agent  TEXT    NOT NULL,
+                  deployment    TEXT,
+                  namespace     TEXT,
+                  timestamp_ms  INTEGER NOT NULL,
+                  payload       TEXT    NOT NULL
+                ) STRICT
+              """)
+              conn4.execute("CREATE INDEX IF NOT EXISTS idx_record_type ON audit_log(record_type)")
+              conn4.execute("CREATE INDEX IF NOT EXISTS idx_deployment  ON audit_log(namespace, deployment)")
+              conn4.execute("CREATE INDEX IF NOT EXISTS idx_timestamp   ON audit_log(timestamp_ms)")
+              conn4.execute("CREATE INDEX IF NOT EXISTS idx_writer      ON audit_log(writer_agent)")
+              conn4.commit()
+              conn4.close()
+              print("  Domain 4 OK — tables: audit_log + 4 indexes")
+ 
+              # ---- Domain 5: Coordination -------------------------------------
+              db5 = "/mnt/kb/domain5/coordination.db"
+              print(f"Initialising Domain 5 at {db5}")
+              conn5 = sqlite3.connect(db5)
+              conn5.execute("PRAGMA journal_mode=WAL")
+              conn5.execute("PRAGMA synchronous=NORMAL")
+              conn5.execute("""
+                CREATE TABLE IF NOT EXISTS cooldown_state (
+                  namespace         TEXT    NOT NULL,
+                  deployment        TEXT    NOT NULL,
+                  last_action_ms    INTEGER NOT NULL,
+                  remaining_seconds REAL    NOT NULL,
+                  last_action_type  TEXT    NOT NULL,
+                  updated_ms        INTEGER NOT NULL,
+                  PRIMARY KEY (namespace, deployment)
+                ) STRICT
+              """)
+              conn5.execute("""
+                CREATE TABLE IF NOT EXISTS heartbeat_registry (
+                  agent_id          TEXT PRIMARY KEY,
+                  agent_type        TEXT    NOT NULL,
+                  namespace         TEXT,
+                  deployment        TEXT,
+                  domain            TEXT    NOT NULL,
+                  last_heartbeat_ms INTEGER NOT NULL,
+                  status            TEXT    NOT NULL DEFAULT 'ALIVE'
+                ) STRICT
+              """)
+              conn5.execute("""
+                CREATE TABLE IF NOT EXISTS escalation_records (
+                  escalation_id     TEXT PRIMARY KEY,
+                  escalation_type   TEXT    NOT NULL,
+                  namespace         TEXT,
+                  deployment        TEXT,
+                  requesting_domain TEXT    NOT NULL,
+                  target_replicas   INTEGER,
+                  status            TEXT    NOT NULL DEFAULT 'PENDING',
+                  created_ms        INTEGER NOT NULL,
+                  resolved_ms       INTEGER,
+                  resolution        TEXT
+                ) STRICT
+              """)
+              conn5.execute("""
+                CREATE TABLE IF NOT EXISTS veto_queue (
+                  veto_id         TEXT PRIMARY KEY,
+                  namespace       TEXT    NOT NULL,
+                  deployment      TEXT    NOT NULL,
+                  action_type     TEXT    NOT NULL,
+                  target_replicas INTEGER NOT NULL,
+                  queued_ms       INTEGER NOT NULL,
+                  status          TEXT    NOT NULL DEFAULT 'QUEUED'
+                ) STRICT
+              """)
+              conn5.commit()
+              conn5.close()
+              print("  Domain 5 OK — tables: cooldown_state, heartbeat_registry, escalation_records, veto_queue")
+ 
+              print("\nKB init complete. Both databases are ready.")
+              sys.exit(0)
+          volumeMounts:
+            - name: kb-storage
+              mountPath: /mnt/kb
+      volumes:
+        - name: kb-storage
+          persistentVolumeClaim:
+            claimName: kb-shared-pvc
+ 

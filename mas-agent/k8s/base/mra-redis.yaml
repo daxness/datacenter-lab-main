@@ -1,0 +1,114 @@
+# mra-redis.yaml
+#
+# MRA instance monitoring the "redis" deployment in namespace "workloads".
+#
+# Key facts derived from your redis-deployment.yaml:
+#   cpu request:  50m    cpu limit:  200m
+#   mem request:  32Mi   mem limit:  64Mi
+#   replicas:     1
+#
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mra-redis
+  namespace: mas-system
+  labels:
+    app: mas-mra
+    monitored-deployment: redis
+    monitored-namespace: workloads
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mas-mra
+      monitored-deployment: redis
+  template:
+    metadata:
+      labels:
+        app: mas-mra
+        monitored-deployment: redis
+        monitored-namespace: workloads
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      securityContext:
+        runAsUser: 1001      # matches the mra-agent uid in the Dockerfile
+        runAsGroup: 1000     # matches your WSL2 gid from Step 1
+        fsGroup: 1000        # all files created by this pod belong to group 1000
+      serviceAccountName: mra-sa
+      containers:
+        - name: mra
+          image: mas-mra:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8000
+              name: metrics
+              protocol: TCP
+          env:
+            - name: MRA_NAMESPACE
+              value: "workloads"
+            - name: MRA_DEPLOYMENT
+              value: "redis"
+            - name: PROMETHEUS_URL
+              value: "http://monitoring-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090"
+            - name: CPU_RATE_WINDOW
+              value: "2m"
+            - name: SCRAPE_INTERVAL
+              value: "30"
+            - name: MQTT_HOST
+              value: "mosquitto.mas-system.svc.cluster.local"
+            - name: MQTT_PORT
+              value: "1883"
+            - name: MQTT_USERNAME
+              value: "mra"
+            - name: MQTT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mqtt-credentials
+                  key: mra-password
+            - name: DOMAIN4_DB_PATH
+              value: "/mnt/kb/domain4/audit_log.db"
+            - name: CPU_WARNING_PCT
+              value: "0.70"
+            - name: CPU_CRITICAL_PCT
+              value: "0.85"
+            - name: MEMORY_WARNING_PCT
+              value: "0.75"
+            - name: MEMORY_CRITICAL_PCT
+              value: "0.90"
+            - name: WARNING_CONSECUTIVE
+              value: "2"
+            - name: HEARTBEAT_INTERVAL
+              value: "15"
+            - name: STARTUP_TIMEOUT
+              value: "120"
+          volumeMounts:
+            - name: kb-storage
+              mountPath: /mnt/kb
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: 8000
+            initialDelaySeconds: 40
+            periodSeconds: 15
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+      volumes:
+        - name: kb-storage
+          persistentVolumeClaim:
+            claimName: kb-shared-pvc

@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  # Namespaces — must exist before workloads
+  - namespaces/workloads-ns.yaml
+  - namespaces/monitoring-ns.yaml
+  # Workloads
+  - workloads/nginx-deployment.yaml
+  - workloads/nginx-service.yaml
+  - workloads/redis-deployment.yaml
+  - workloads/redis-service.yaml
+  - workloads/stress-ng-deployment.yaml

@@ -1,0 +1,123 @@
+# mra-stress-ng.yaml
+#
+# MRA instance monitoring the "stress-ng" deployment in namespace "workloads".
+#
+# Key facts derived from your stress-ng-deployment.yaml:
+#   cpu request:  100m   cpu limit:  500m
+#   mem request:  96Mi   mem limit:  128Mi
+#   replicas:     2 (base), 4 (overlays/high-load overlay)
+#
+# stress-ng is the primary load-generation workload for thesis experiments.
+# Its MRA will likely show the most interesting pressure transitions because
+# stress-ng actively consumes CPU (--cpu 1) and memory (--vm-bytes 64M).
+#
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mra-stress-ng
+  namespace: mas-system
+  labels:
+    app: mas-mra
+    monitored-deployment: stress-ng
+    monitored-namespace: workloads
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mas-mra
+      monitored-deployment: stress-ng
+  template:
+    metadata:
+      labels:
+        app: mas-mra
+        monitored-deployment: stress-ng
+        monitored-namespace: workloads
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      securityContext:
+        runAsUser: 1001      # matches the mra-agent uid in the Dockerfile
+        runAsGroup: 1000     # matches your WSL2 gid from Step 1
+        fsGroup: 1000        # all files created by this pod belong to group 1000
+      serviceAccountName: mra-sa
+      containers:
+        - name: mra
+          image: mas-mra:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8000
+              name: metrics
+              protocol: TCP
+          env:
+            - name: MRA_NAMESPACE
+              value: "workloads"
+            - name: MRA_DEPLOYMENT
+              value: "stress-ng"
+            - name: PROMETHEUS_URL
+              value: "http://monitoring-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090"
+            - name: CPU_RATE_WINDOW
+              value: "2m"
+            - name: SCRAPE_INTERVAL
+              value: "30"
+            - name: MQTT_HOST
+              value: "mosquitto.mas-system.svc.cluster.local"
+            - name: MQTT_PORT
+              value: "1883"
+            - name: MQTT_USERNAME
+              value: "mra"
+            - name: MQTT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mqtt-credentials
+                  key: mra-password
+            - name: DOMAIN4_DB_PATH
+              value: "/mnt/kb/domain4/audit_log.db"
+            # stress-ng actively consumes 100m+ CPU per pod, so WARNING at 70%
+            # of 500m limit = 350m threshold. With 2 pods each using ~100m,
+            # total usage ≈ 200m which is 40% — NORMAL under idle conditions.
+            # Under active load (--cpu 1 per pod), usage approaches the limit,
+            # making stress-ng the most likely deployment to trigger WARNING/CRITICAL.
+            - name: CPU_WARNING_PCT
+              value: "0.70"
+            - name: CPU_CRITICAL_PCT
+              value: "0.85"
+            - name: MEMORY_WARNING_PCT
+              value: "0.75"
+            - name: MEMORY_CRITICAL_PCT
+              value: "0.90"
+            - name: WARNING_CONSECUTIVE
+              value: "2"
+            - name: HEARTBEAT_INTERVAL
+              value: "15"
+            - name: STARTUP_TIMEOUT
+              value: "120"
+          volumeMounts:
+            - name: kb-storage
+              mountPath: /mnt/kb
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: 8000
+            initialDelaySeconds: 40
+            periodSeconds: 15
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+      volumes:
+        - name: kb-storage
+          persistentVolumeClaim:
+            claimName: kb-shared-pvc
