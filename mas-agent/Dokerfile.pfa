@@ -1,0 +1,74 @@
+# Dockerfile — Predictive Forecasting Agent (PFA)
+#
+# Two-stage build:
+#   Stage 1 (builder): install all Python dependencies
+#   Stage 2 (runtime): copy only what is needed to run
+#
+# TimesFM installation strategy:
+#   TimesFM 2.5 requires ~2GB of model weights downloaded from HuggingFace.
+#   We install the timesfm library in the Docker image but do NOT pre-download
+#   the weights — they are downloaded on first startup and cached at:
+#     /home/pfa-agent/.cache/huggingface/hub/
+#
+#   To avoid re-downloading on every pod restart, mount a PersistentVolume
+#   at /home/pfa-agent/.cache (see pfa-*.yaml deployment manifests).
+#   The HuggingFace cache is then shared across restarts.
+#
+#   If TimesFM download fails (no internet access from cluster), the PFA
+#   automatically falls back to exponential smoothing — see inference_engine.py.
+#
+# Build command (run from pfa-agent/ directory):
+#   docker build -t mas-pfa:latest .
+#
+# Load into K3D:
+#   k3d image import mas-pfa:latest --cluster datacenter-lab
+#
+
+FROM python:3.11-slim AS builder
+
+WORKDIR /build
+
+# Install system dependencies needed for numpy and timesfm
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+
+# Install base requirements
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+# Install TimesFM separately — it has heavy dependencies (torch, etc.)
+# The --no-deps flag is NOT used here because timesfm needs torch
+RUN pip install --no-cache-dir --prefix=/install timesfm || \
+    echo "WARNING: timesfm installation failed — fallback mode will be used"
+
+# ---- Runtime image ----
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install runtime system libraries needed by torch (used by TimesFM)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy installed packages from builder
+COPY --from=builder /install /usr/local
+
+# Copy PFA source package
+COPY pfa/ ./pfa/
+
+# Non-root user — uid 1001 matches the MRA for consistent volume permissions
+RUN useradd -r -u 1001 -g root pfa-agent
+USER pfa-agent
+
+# HuggingFace cache directory — mount a PV here to persist model weights
+# across pod restarts (see deployment manifest)
+ENV HF_HOME=/home/pfa-agent/.cache/huggingface
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
+  CMD python3 -c "import pfa.config; print('ok')" || exit 1
+
+CMD ["python3", "-m", "pfa.main"]

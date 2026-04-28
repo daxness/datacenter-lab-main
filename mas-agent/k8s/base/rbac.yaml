@@ -43,3 +43,36 @@ subjects:
   - kind: ServiceAccount
     name: mra-sa
     namespace: mas-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pfa-sa
+  namespace: mas-system
+  labels:
+    mas-component: pfa
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pfa-configmap-reader
+  namespace: mas-system
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["mas-policy", "mas-topology"]
+    verbs: ["get", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pfa-configmap-reader-binding
+  namespace: mas-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: pfa-configmap-reader
+subjects:
+  - kind: ServiceAccount
+    name: pfa-sa
+    namespace: mas-system

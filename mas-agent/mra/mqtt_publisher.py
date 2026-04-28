@@ -38,10 +38,13 @@ class MQTTPublisher:
         self._topic_status    = topic_status
         self._topic_heartbeat = topic_heartbeat
         self._connected       = threading.Event()
+
+        import uuid as _uuid
  
         self._client = mqtt.Client(
-            client_id=client_id,
+            client_id=f"{client_id}-{_uuid.uuid4().hex[:8]}",
             callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
+            clean_session=True,
         )
         if username:
             self._client.username_pw_set(username, password)

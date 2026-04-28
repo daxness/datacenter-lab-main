@@ -1,0 +1,44 @@
+# hf-cache-storage.yaml
+#
+# PersistentVolume for the HuggingFace model weight cache.
+#
+# TimesFM 2.5 weights are ~2GB and are downloaded from HuggingFace on
+# first startup. Without this PVC, every pod restart would re-download
+# the full 2GB — unacceptable in a K3D/WSL2 environment with limited bandwidth.
+#
+# With this PVC mounted at /home/pfa-agent/.cache/huggingface, the weights
+# are downloaded ONCE the first time any PFA pod starts, then reused by all
+# subsequent startups.
+#
+# The cache is stored at:
+#   ~/datacenter-lab-main/kb-storage/hf-cache/
+# on your WSL2 host — same shared volume as the SQLite databases.
+#
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: hf-cache-pv
+spec:
+  capacity:
+    storage: 5Gi         # TimesFM 2.5 weights are ~2GB; 5Gi gives headroom
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  hostPath:
+    path: /mnt/kb/hf-cache    # K3D maps this to ~/datacenter-lab-main/kb-storage/hf-cache
+    type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: hf-cache-pvc
+  namespace: mas-system
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: ""
+  volumeName: hf-cache-pv
+  resources:
+    requests:
+      storage: 5Gi

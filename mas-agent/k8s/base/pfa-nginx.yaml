@@ -1,0 +1,160 @@
+# pfa-nginx.yaml
+#
+# PFA instance forecasting for the "nginx" deployment in namespace "workloads".
+#
+# This PFA subscribes to:
+#   /mas/workloads/nginx/mra/beliefs  (published by mra-nginx)
+#
+# And publishes to:
+#   /mas/workloads/nginx/pfa/forecasts  (consumed by RSA and DCA)
+#   /mas/workloads/nginx/pfa/status
+#
+# Memory: TimesFM requires ~1.5-2GB RAM. The limit is set to 3Gi to give
+# headroom for the torch runtime alongside the model weights.
+# CPU: inference is CPU-bound; 1000m (1 core) allows reasonable throughput
+# for the 15-minute periodic cycle.
+#
+# The HuggingFace cache PVC ensures model weights are downloaded once
+# and reused across restarts.
+#
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pfa-nginx
+  namespace: mas-system
+  labels:
+    app: mas-pfa
+    monitored-deployment: nginx
+    monitored-namespace: workloads
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mas-pfa
+      monitored-deployment: nginx
+  template:
+    metadata:
+      labels:
+        app: mas-pfa
+        monitored-deployment: nginx
+        monitored-namespace: workloads
+    spec:
+      serviceAccountName: pfa-sa
+      securityContext:
+        runAsUser: 1001
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: pfa
+          image: mas-pfa:latest
+          imagePullPolicy: Never
+          env:
+            # ---- Deployment identity ----
+            - name: PFA_NAMESPACE
+              value: "workloads"
+            - name: PFA_DEPLOYMENT
+              value: "nginx"
+
+            # ---- MQTT ----
+            - name: MQTT_HOST
+              value: "mosquitto.mas-system.svc.cluster.local"
+            - name: MQTT_PORT
+              value: "1883"
+            - name: MQTT_USERNAME
+              value: "pfa"
+            - name: MQTT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mqtt-credentials
+                  key: pfa-password
+
+            # ---- Prometheus (for window reconstruction on restart) ----
+            - name: PROMETHEUS_URL
+              value: "http://monitoring-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090"
+
+            # ---- Knowledge Base ----
+            - name: DOMAIN4_DB_PATH
+              value: "/mnt/kb/domain4/audit_log.db"
+
+            # ---- Sliding window ----
+            - name: WINDOW_MAX_SIZE
+              value: "96"
+            - name: WINDOW_MIN_INFERENCE
+              value: "32"
+            - name: PATCH_SIZE
+              value: "32"
+
+            # ---- Inference triggering ----
+            - name: PERIODIC_INFERENCE_INTERVAL
+              value: "900"      # 15 minutes
+            - name: MIN_INFERENCE_GAP
+              value: "90"       # 90 seconds between WARNING-triggered cycles
+
+            # ---- Breach thresholds (from domain1-policy.yaml) ----
+            - name: CPU_BREACH_PCT
+              value: "0.70"     # WARNING threshold — maximises lead time
+            - name: MEMORY_BREACH_PCT
+              value: "0.75"
+
+            # ---- MRA liveness ----
+            - name: MRA_MISSED_SUSPECTED
+              value: "3"        # 3 × 30s = 90s silence → SUSPECTED
+            - name: MRA_MISSED_CONFIRMED
+              value: "5"        # 5 × 30s = 150s silence → CONFIRMED
+
+            # ---- Forecast parameters ----
+            - name: FORECAST_STEPS
+              value: "30"       # 30 steps × 30s = 15-minute horizon
+            - name: STEP_DURATION
+              value: "30"
+
+            # ---- Lifecycle ----
+            - name: HEARTBEAT_INTERVAL
+              value: "30"
+            - name: STARTUP_TIMEOUT
+              value: "120"
+
+            # ---- HuggingFace cache location ----
+            - name: HF_HOME
+              value: "/mnt/hf-cache"
+
+          volumeMounts:
+            - name: kb-storage
+              mountPath: /mnt/kb
+            - name: hf-cache
+              mountPath: /mnt/hf-cache
+
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2000m"
+              memory: "3Gi"
+
+          livenessProbe:
+            exec:
+              command:
+                - python3
+                - -c
+                - "import pfa.config; print('ok')"
+            initialDelaySeconds: 120    # allow time for TimesFM weight download
+            periodSeconds: 30
+            failureThreshold: 3
+
+          readinessProbe:
+            exec:
+              command:
+                - python3
+                - -c
+                - "import pfa.config; print('ok')"
+            initialDelaySeconds: 30
+            periodSeconds: 15
+
+      volumes:
+        - name: kb-storage
+          persistentVolumeClaim:
+            claimName: kb-shared-pvc
+        - name: hf-cache
+          persistentVolumeClaim:
+            claimName: hf-cache-pvc
