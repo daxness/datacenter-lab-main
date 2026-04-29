@@ -44,6 +44,27 @@ spec:
         runAsUser: 1001
         runAsGroup: 1000
         fsGroup: 1000
+      initContainers:
+        - name: install-timesfm
+          image: mas-pfa:latest
+          imagePullPolicy: Never
+          command:
+            - sh
+            - -c
+            - |
+              TARGET="/mnt/hf-cache/site-packages"
+              mkdir -p "$TARGET"
+              if python3 -c "import sys; sys.path.insert(0,'$TARGET'); import timesfm" 2>/dev/null; then
+                echo "timesfm already installed — skipping"
+              else
+                echo "Installing timesfm into $TARGET ..."
+                pip install --no-cache-dir --target "$TARGET" torch --index-url https://download.pytorch.org/whl/cpu && pip install --no-cache-dir --target "$TARGET" timesfm \
+                  && echo "timesfm installed successfully" \
+                  || echo "timesfm install failed — fallback mode will be used"
+              fi
+          volumeMounts:
+            - name: hf-cache
+              mountPath: /mnt/hf-cache
       containers:
         - name: pfa
           image: mas-pfa:latest
@@ -117,6 +138,8 @@ spec:
             # ---- HuggingFace cache location ----
             - name: HF_HOME
               value: "/mnt/hf-cache"
+            - name: PYTHONPATH
+              value: "/mnt/hf-cache/site-packages"
 
           volumeMounts:
             - name: kb-storage
@@ -138,7 +161,8 @@ spec:
                 - python3
                 - -c
                 - "import pfa.config; print('ok')"
-            initialDelaySeconds: 120    # allow time for TimesFM weight download
+            initialDelaySeconds: 180    # allow time for TimesFM weight download
+            timeoutSeconds: 10
             periodSeconds: 30
             failureThreshold: 3
 
@@ -148,8 +172,10 @@ spec:
                 - python3
                 - -c
                 - "import pfa.config; print('ok')"
-            initialDelaySeconds: 30
+            initialDelaySeconds: 90
+            timeoutSeconds: 10
             periodSeconds: 15
+            failureThreshold: 10
 
       volumes:
         - name: kb-storage

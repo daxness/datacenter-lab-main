@@ -115,6 +115,18 @@ class PFAConfig:
     memory_warning_pct: float = field(
         default_factory=lambda: float(os.getenv("MEMORY_WARNING_PCT", "0.75"))
     )
+    # ---- Forecast steps ----
+    forecast_steps: int = field(
+        default_factory=lambda: int(os.getenv("FORECAST_STEPS", "6"))
+    )
+
+    # ---- Breach thresholds aliases ----
+    cpu_breach_pct: float = field(
+        default_factory=lambda: float(os.getenv("CPU_WARNING_PCT", "0.70"))
+    )
+    memory_breach_pct: float = field(
+        default_factory=lambda: float(os.getenv("MEMORY_WARNING_PCT", "0.75"))
+    )
 
     # ---- Knowledge Base ----
     prometheus_url: str = field(
@@ -136,3 +148,41 @@ class PFAConfig:
     startup_timeout_seconds: int = field(
         default_factory=lambda: int(os.getenv("STARTUP_TIMEOUT", "120"))
     )
+
+    # ---- Missing fields added ----
+    domain: str = field(
+        default_factory=lambda: os.getenv("PFA_DOMAIN", "workloads")
+    )
+    forward_fill_degraded_cycles: int = field(
+        default_factory=lambda: int(os.getenv("FORWARD_FILL_DEGRADED_CYCLES", "3"))
+    )
+    forward_fill_max_ratio: float = field(
+        default_factory=lambda: float(os.getenv("FORWARD_FILL_MAX_RATIO", "0.5"))
+    )
+    mra_expected_interval_seconds: int = field(
+        default_factory=lambda: int(os.getenv("MRA_EXPECTED_INTERVAL", "30"))
+    )
+    mra_missed_confirmed: int = field(
+        default_factory=lambda: int(os.getenv("MRA_MISSED_CONFIRMED", "5"))
+    )
+    mra_missed_suspected: int = field(
+        default_factory=lambda: int(os.getenv("MRA_MISSED_SUSPECTED", "3"))
+    )
+    periodic_inference_interval_seconds: int = field(
+        default_factory=lambda: int(os.getenv("PERIODIC_INFERENCE", "900"))
+    )
+    step_duration_seconds: int = field(
+        default_factory=lambda: int(os.getenv("STEP_DURATION", "15"))
+    )
+
+    @property
+    def topic_forecasts(self) -> str:
+        return self.topic_pfa_forecasts
+
+    @property
+    def topic_heartbeat(self) -> str:
+        return self.topic_pfa_heartbeat
+
+    @property
+    def topic_status(self) -> str:
+        return self.topic_pfa_status

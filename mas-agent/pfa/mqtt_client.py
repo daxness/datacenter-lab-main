@@ -33,9 +33,9 @@ class PFAMQTTClient:
         deployment: str,
         topic_mra_beliefs: str,
         topic_mra_status: str,
-        topic_pfa_forecasts: str,
-        topic_pfa_status: str,
-        topic_pfa_heartbeat: str,
+        topic_forecasts: str,
+        topic_status: str,
+        topic_heartbeat: str,
         topic_system_policy: str,
         topic_domain_ready: str,
         username: str = "",
@@ -45,9 +45,9 @@ class PFAMQTTClient:
         on_policy_ready=None,
         on_domain_ready=None,
     ):
-        self._topic_forecasts  = topic_pfa_forecasts
-        self._topic_status     = topic_pfa_status
-        self._topic_heartbeat  = topic_pfa_heartbeat
+        self._topic_forecasts  = topic_forecasts
+        self._topic_status     = topic_status
+        self._topic_heartbeat  = topic_heartbeat
         self._topic_mra_beliefs = topic_mra_beliefs
         self._topic_mra_status  = topic_mra_status
         self._topic_policy     = topic_system_policy
@@ -77,7 +77,7 @@ class PFAMQTTClient:
         self._client.on_message    = self._on_message
 
         log.info("mqtt_connecting", host=host, port=port, client_id=client_id)
-        self._client.connect_async(host, port, keepalive=20)
+        self._client.connect(host, port, keepalive=60)
         self._client.loop_start()
 
     def _on_connect(self, client, userdata, flags, reason_code, properties):
@@ -117,7 +117,7 @@ class PFAMQTTClient:
 
         elif topic == self._topic_mra_status:
             if self._on_mra_status:
-                self._on_mra_status(payload)
+                self._on_mra_status()
 
         elif topic == self._topic_policy:
             if self._on_policy_ready:
