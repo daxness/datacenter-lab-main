@@ -1,18 +1,22 @@
 FROM python:3.11-slim AS builder
 
 WORKDIR /build
+
 COPY requirements.txt .
+
+RUN pip install --no-cache-dir --prefix=/install torch --index-url https://download.pytorch.org/whl/cpu
+RUN pip install --no-cache-dir --prefix=/install timesfm
 RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
 FROM python:3.11-slim
 
 WORKDIR /app
+
 COPY --from=builder /install /usr/local
 COPY pfa/ ./pfa/
 
 RUN useradd -r -u 1001 -g root pfa-agent
-USER pfa-agent
 
-ENV HF_HOME=/mnt/hf-cache
+USER pfa-agent
 
 CMD ["python3", "-m", "pfa.main"]

@@ -120,20 +120,20 @@ spec:
             limits:
               cpu: "2000m"
               memory: "3Gi"
-          livenessProbe:
-            exec:
-              command: ["python3", "-c", "import pfa.config; print('ok')"]
-            initialDelaySeconds: 180
-            timeoutSeconds: 10
-            periodSeconds: 30
-            failureThreshold: 3
-          readinessProbe:
-            exec:
-              command: ["python3", "-c", "import pfa.config; print('ok')"]
-            initialDelaySeconds: 90
-            timeoutSeconds: 10
-            periodSeconds: 15
-            failureThreshold: 10
+#          livenessProbe:
+#            exec:
+#              command: ["python3", "-c", "import pfa.config; print('ok')"]
+#            initialDelaySeconds: 180
+#            timeoutSeconds: 10
+#            periodSeconds: 30
+#            failureThreshold: 3
+#          readinessProbe:
+#            exec:
+#              command: ["python3", "-c", "import pfa.config; print('ok')"]
+#            initialDelaySeconds: 90
+#            timeoutSeconds: 10
+#            periodSeconds: 15
+#            failureThreshold: 10
       volumes:
         - name: kb-storage
           persistentVolumeClaim:

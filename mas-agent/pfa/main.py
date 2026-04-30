@@ -111,7 +111,7 @@ def run(config: PFAConfig) -> None:
             deployment=config.deployment_name,
         )
 
-        mqtt.publish_forecast_update(forecast_to_json(forecast))
+        mqtt.publish_forecast(forecast_to_json(forecast))
 
         last_p50_cpu        = result.cpu.p50.copy()
         last_p50_memory     = result.memory.p50.copy()
@@ -201,11 +201,11 @@ def run(config: PFAConfig) -> None:
 
     # ---- MRA monitor callbacks ----
     def on_mra_suspected():
-        mqtt.publish_status("MRA_DOWN_SUSPECTED")
+        mqtt.publish_status("MRA_DOWN_SUSPECTED", {})
         log.warning("mra_down_suspected_published")
 
     def on_mra_confirmed():
-        mqtt.publish_status("MRA_DOWN_CONFIRMED")
+        mqtt.publish_status("MRA_DOWN_CONFIRMED", {})
         window.reset()
         log.warning("mra_down_confirmed_window_reset")
 
