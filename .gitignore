@@ -7,3 +7,7 @@ __pycache__/
 node_modules/
 dist/
 build/
+kb-storage/hf-cache/
+**/hf-cache/
+kb-storage/hf-cache/
+**/hf-cache/

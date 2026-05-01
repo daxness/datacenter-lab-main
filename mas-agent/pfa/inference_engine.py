@@ -32,13 +32,13 @@ class InferenceEngine:
                 hparams=timesfm.TimesFmHparams(
                     backend="cpu", per_core_batch_size=1,
                     horizon_len=self._steps, input_patch_len=self._patch,
-                    output_patch_len=self._patch, num_layers=20,
+                    output_patch_len=1280, num_layers=20,
                     model_dims=1280, quantiles=[0.1, 0.5, 0.9],
                 ),
                 checkpoint=timesfm.TimesFmCheckpoint(
-                    huggingface_repo_id="google/timesfm-2.0-500m-pytorch"),
+                    huggingface_repo_id="google/timesfm-1.0-200m-pytorch"),
             )
-            self._model_name = "timesfm-2.0-500m"
+            self._model_name = "timesfm-1.0-200m"
             log.info("timesfm_loaded", model=self._model_name)
         except ImportError:
             log.warning("timesfm_not_installed", msg="using fallback")
