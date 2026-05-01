@@ -20,10 +20,9 @@ metadata:
   labels:
     mas-component: kb-init
 spec:
-  ttlSecondsAfterFinished: 600    # Auto-delete the completed Job pod after 10 minutes
+  ttlSecondsAfterFinished: 600 # Auto-delete the completed Job pod after 10 minutes
   template:
     spec:
-      spec:
       securityContext:
         runAsUser: 1001
         runAsGroup: 1000
@@ -37,7 +36,7 @@ spec:
             - -c
             - |
               import sqlite3, os, sys
- 
+
               # ---- Domain 4: Audit log ----------------------------------------
               db4 = "/mnt/kb/domain4/audit_log.db"
               print(f"Initialising Domain 4 at {db4}")
@@ -62,7 +61,7 @@ spec:
               conn4.commit()
               conn4.close()
               print("  Domain 4 OK — tables: audit_log + 4 indexes")
- 
+
               # ---- Domain 5: Coordination -------------------------------------
               db5 = "/mnt/kb/domain5/coordination.db"
               print(f"Initialising Domain 5 at {db5}")
@@ -119,7 +118,7 @@ spec:
               conn5.commit()
               conn5.close()
               print("  Domain 5 OK — tables: cooldown_state, heartbeat_registry, escalation_records, veto_queue")
- 
+
               print("\nKB init complete. Both databases are ready.")
               sys.exit(0)
           volumeMounts:
@@ -129,4 +128,3 @@ spec:
         - name: kb-storage
           persistentVolumeClaim:
             claimName: kb-shared-pvc
- 

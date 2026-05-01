@@ -86,7 +86,7 @@ class PFAConfig:
         default_factory=lambda: int(os.getenv("MIN_INFERENCE_GAP", "90"))
     )
     periodic_inference_seconds: int = field(
-        default_factory=lambda: int(os.getenv("PERIODIC_INFERENCE", "900"))
+        default_factory=lambda: int(os.getenv("PERIODIC_INFERENCE_INTERVAL", "900"))
     )
 
     # ---- MRA liveness monitoring (Spec Section 7.1) ----
@@ -108,7 +108,7 @@ class PFAConfig:
         default_factory=lambda: int(os.getenv("DEGRADED_THRESHOLD", "3"))
     )
 
-    # ---- Breach thresholds (Spec Section 4.5) ----
+   # ---- Breach thresholds (Spec Section 4.5) ----
     cpu_warning_pct: float = field(
         default_factory=lambda: float(os.getenv("CPU_WARNING_PCT", "0.70"))
     )
@@ -117,15 +117,15 @@ class PFAConfig:
     )
     # ---- Forecast steps ----
     forecast_steps: int = field(
-        default_factory=lambda: int(os.getenv("FORECAST_STEPS", "6"))
+        default_factory=lambda: int(os.getenv("FORECAST_STEPS", "30"))
     )
 
     # ---- Breach thresholds aliases ----
     cpu_breach_pct: float = field(
-        default_factory=lambda: float(os.getenv("CPU_WARNING_PCT", "0.70"))
+        default_factory=lambda: float(os.getenv("CPU_BREACH_PCT", "0.70"))
     )
     memory_breach_pct: float = field(
-        default_factory=lambda: float(os.getenv("MEMORY_WARNING_PCT", "0.75"))
+        default_factory=lambda: float(os.getenv("MEMORY_BREACH_PCT", "0.75"))
     )
 
     # ---- Knowledge Base ----
@@ -169,10 +169,10 @@ class PFAConfig:
         default_factory=lambda: int(os.getenv("MRA_MISSED_SUSPECTED", "3"))
     )
     periodic_inference_interval_seconds: int = field(
-        default_factory=lambda: int(os.getenv("PERIODIC_INFERENCE", "900"))
+        default_factory=lambda: int(os.getenv("PERIODIC_INFERENCE_INTERVAL", "900"))
     )
     step_duration_seconds: int = field(
-        default_factory=lambda: int(os.getenv("STEP_DURATION", "15"))
+        default_factory=lambda: int(os.getenv("STEP_DURATION", "30"))
     )
 
     @property
