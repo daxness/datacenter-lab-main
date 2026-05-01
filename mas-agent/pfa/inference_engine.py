@@ -26,48 +26,59 @@ class InferenceEngine:
         self._load_model()
 
     def _load_model(self):
-        try:
-            import timesfm
-            self._model = timesfm.TimesFm(
-                hparams=timesfm.TimesFmHparams(
-                    backend="cpu", per_core_batch_size=1,
-                    horizon_len=self._steps, input_patch_len=self._patch,
-                    output_patch_len=1280, num_layers=20,
-                    model_dims=1280, quantiles=[0.1, 0.5, 0.9],
-                ),
-                checkpoint=timesfm.TimesFmCheckpoint(
-                    huggingface_repo_id="google/timesfm-1.0-200m-pytorch"),
-            )
-            self._model_name = "timesfm-1.0-200m"
-            log.info("timesfm_loaded", model=self._model_name)
-        except ImportError:
-            log.warning("timesfm_not_installed", msg="using fallback")
-        except Exception as e:
-            log.error("timesfm_load_failed", error=str(e))
+    try:
+        import timesfm
 
-    def run(self, cpu_input, memory_input):
-        start = time.time()
-        if self._model is not None:
-            cpu_traj = self._run_timesfm(cpu_input)
-            mem_traj = self._run_timesfm(memory_input)
-        else:
-            cpu_traj = self._run_fallback(cpu_input)
-            mem_traj = self._run_fallback(memory_input)
-        for metric, traj in [("cpu", cpu_traj), ("memory", mem_traj)]:
-            for q, vals in [("p10", traj.p10), ("p50", traj.p50), ("p90", traj.p90)]:
-                for v in vals:
-                    if not math.isfinite(v):
-                        raise ValueError(f"Non-finite in {metric} {q}: {v}")
-        return InferenceResult(cpu=cpu_traj, memory=mem_traj,
-                               inference_duration_ms=round((time.time()-start)*1000, 2),
-                               timestamp_ms=int(time.time()*1000))
+        self._model = timesfm.TimesFM_2p5_200M_torch.from_pretrained(
+            "google/timesfm-2.5-200m-pytorch",
+            torch_compile=False,
+        )
+
+        self._model.compile(
+            timesfm.ForecastConfig(
+                max_context=1024,
+                max_horizon=self._steps,
+                normalize_inputs=True,
+                use_continuous_quantile_head=True,
+                force_flip_invariance=True,
+                infer_is_positive=True,
+                fix_quantile_crossing=True,
+            )
+        )
+
+        self._model_name = "timesfm-2.5-200m"
+        log.info("timesfm_loaded", model=self._model_name)
+
+    except ImportError:
+        log.warning("timesfm_not_installed")
+
+    except Exception as e:
+        log.error("timesfm_load_failed", error=str(e))
+        raise
 
     def _run_timesfm(self, series):
-        pf, qf = self._model.forecast(inputs=[np.array(series, dtype=np.float32)], freq=[0])
-        p10 = [max(0., v) for v in qf[0,:,0].tolist()]
-        p50 = [max(0., v) for v in qf[0,:,1].tolist()]
-        p90 = [max(0., v) for v in qf[0,:,2].tolist()]
-        return QuantileTrajectory(p10=p10, p50=p50, p90=p90, model_used=self._model_name)
+    import numpy as np
+
+    pf, qf = self._model.forecast(
+        horizon=self._steps,
+        inputs=[np.array(series, dtype=np.float32)],
+    )
+
+    p50 = [max(0.0, float(v)) for v in pf[0].tolist()]
+
+    try:
+        p10 = [max(0.0, float(v)) for v in qf[0, :, 1].tolist()]
+        p90 = [max(0.0, float(v)) for v in qf[0, :, 9].tolist()]
+    except Exception:
+        p10 = p50
+        p90 = p50
+
+    return QuantileTrajectory(
+        p10=p10,
+        p50=p50,
+        p90=p90,
+        model_used=self._model_name,
+    )
 
     def _run_fallback(self, series):
         if not series:
