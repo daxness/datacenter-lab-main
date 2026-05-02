@@ -5,21 +5,28 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
+COPY timesfm-src/ ./timesfm-src/
 
 RUN pip install --no-cache-dir \
-    torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu && \
-    pip install timesfm && \
+    torch --index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir \
+        safetensors \
+        huggingface_hub && \
     pip install --no-cache-dir -r requirements.txt && \
     pip install --no-cache-dir --force-reinstall \
         numpy==1.26.4 \
         pandas==2.2.2
 
-RUN sed -i 's/torch.load(checkpoint_path, weights_only=True)/torch.load(checkpoint_path, weights_only=False)/' \
-    /usr/local/lib/python3.11/site-packages/timesfm/timesfm_torch.py
+# Install timesfm 2.5 from local source
+RUN pip install --no-cache-dir ./timesfm-src
+
+RUN PYTHONPATH="/app/timesfm-src/src" python3 -c "import timesfm; assert hasattr(timesfm, 'TimesFM_2p5_200M_torch'), 'WRONG VERSION'; print('timesfm 2.5 OK')"
 
 COPY pfa/ ./pfa/
 
 RUN useradd -r -u 1001 -g root pfa-agent
+
+ENV PYTHONPATH="/app/timesfm-src/src:${PYTHONPATH}"
 
 USER pfa-agent
 

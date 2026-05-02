@@ -36,19 +36,19 @@ class InferenceEngine:
     def _load_model(self):
         try:
             import timesfm
-            import os
-            self._model = timesfm.TimesFm(
-                hparams=timesfm.TimesFmHparams(
-                    backend="pytorch",
-                    per_core_batch_size=32,
-                    horizon_len=self._steps,
-                ),
-                checkpoint=timesfm.TimesFmCheckpoint(
-                    version="torch",
-                    huggingface_repo_id="google/timesfm-2.5-200m-pytorch",
-                    local_dir=os.getenv("HF_HOME", "/mnt/hf-cache"),
-                ),
+            self._model = timesfm.TimesFM_2p5_200M_torch.from_pretrained(
+                "google/timesfm-2.5-200m-pytorch",
+                torch_compile=False,
             )
+            self._model.compile(timesfm.ForecastConfig(
+                max_context=1024,
+                max_horizon=self._steps,
+                normalize_inputs=True,
+                use_continuous_quantile_head=True,
+                force_flip_invariance=True,
+                infer_is_positive=True,
+                fix_quantile_crossing=True,
+            ))
             self._model_name = "timesfm-2.5-200m"
             log.info("timesfm_loaded", model=self._model_name)
         except ImportError:
@@ -56,21 +56,17 @@ class InferenceEngine:
         except Exception as e:
             log.error("timesfm_load_failed", error=str(e))
             self._model = None
-        finally:
-            try:
-                torch.load = _original_torch_load
-            except NameError:
-                pass
 
     def _run_timesfm(self, series: list) -> QuantileTrajectory:
         point_forecasts, quantile_forecasts = self._model.forecast(
+            horizon=self._steps,
             inputs=[np.array(series, dtype=np.float32)],
-            freq=[0],
         )
         p50 = [max(0.0, float(v)) for v in point_forecasts[0].tolist()]
         try:
+            # quantile shape: (1, horizon, 10) — indices 0=P10, 9=P90
             p10 = [max(0.0, float(v)) for v in quantile_forecasts[0, :, 0].tolist()]
-            p90 = [max(0.0, float(v)) for v in quantile_forecasts[0, :, 8].tolist()]
+            p90 = [max(0.0, float(v)) for v in quantile_forecasts[0, :, 9].tolist()]
         except Exception:
             p10 = p50
             p90 = p50
