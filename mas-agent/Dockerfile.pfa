@@ -2,19 +2,20 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# ✅ Install git (REQUIRED for timesfm from GitHub)
 RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
 
-# Install everything in ONE environment (no prefix)
 RUN pip install --no-cache-dir \
-    torch --index-url https://download.pytorch.org/whl/cpu && \
+    torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu && \
     pip install timesfm && \
     pip install --no-cache-dir -r requirements.txt && \
     pip install --no-cache-dir --force-reinstall \
         numpy==1.26.4 \
         pandas==2.2.2
+
+RUN sed -i 's/torch.load(checkpoint_path, weights_only=True)/torch.load(checkpoint_path, weights_only=False)/' \
+    /usr/local/lib/python3.11/site-packages/timesfm/timesfm_torch.py
 
 COPY pfa/ ./pfa/
 
