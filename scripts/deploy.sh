@@ -53,6 +53,7 @@ kubectl apply -f "$LAB_DIR/mas-agent/k8s/infrastructure/mas-namespace.yaml"
  
 # 6b — Shared KB storage (PV + PVC)
 kubectl apply -f "$LAB_DIR/mas-agent/k8s/infrastructure/kb-storage.yaml"
+kubectl apply -f "$LAB_DIR/mas-agent/k8s/infrastructure/hf-cache-storage.yaml" 
  
 # 6c — Domain 1 (policy) and Domain 2 (topology) seed ConfigMaps
 kubectl apply -f "$LAB_DIR/mas-agent/k8s/infrastructure/domain1-policy.yaml"
