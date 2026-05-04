@@ -1,0 +1,38 @@
+# Dockerfile.rsa — Resource Scaling Agent (RSA)
+#
+# Multi-stage build identical in structure to the MRA Dockerfile:
+#   Stage 1 (builder): install Python dependencies into /install
+#   Stage 2 (runtime): copy only the installed packages + source code
+#
+# The runtime image has no build tools (gcc, pip, etc.) — reduces
+# attack surface and image size.
+#
+# Build command (run from mas-agent/ directory):
+#   docker build -f Dockerfile.rsa -t mas-rsa:latest .
+#
+# Load into K3D (no registry needed):
+#   k3d image import mas-rsa:latest --cluster datacenter-lab
+
+FROM python:3.11-slim AS builder
+
+WORKDIR /build
+COPY requirements.txt .
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+# ---- Runtime image ----
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Copy installed packages from the builder stage
+COPY --from=builder /install /usr/local
+
+# Copy RSA Python source package
+COPY rsa/ ./rsa/
+
+# Create a non-root user — uid 1001 matches MRA and PFA convention
+RUN useradd -r -u 1001 -g root rsa-agent
+USER rsa-agent
+
+CMD ["python3", "-m", "rsa.main"]
+

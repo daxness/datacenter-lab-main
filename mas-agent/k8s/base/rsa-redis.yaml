@@ -1,0 +1,125 @@
+# mas-agent/k8s/base/rsa-redis.yaml
+#
+# RSA instance managing the "redis" deployment in namespace "workloads".
+#
+# Per-replica resource values from domain2-topology.yaml:
+#   cpu_request_per_replica:    50m
+#   memory_request_per_replica: 32Mi
+#   min_replicas: 1   max_replicas: 3
+#
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rsa-redis
+  namespace: mas-system
+  labels:
+    app: mas-rsa
+    monitored-deployment: redis
+    monitored-namespace: workloads
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mas-rsa
+      monitored-deployment: redis
+  template:
+    metadata:
+      labels:
+        app: mas-rsa
+        monitored-deployment: redis
+        monitored-namespace: workloads
+    spec:
+      securityContext:
+        runAsUser: 1001
+        runAsGroup: 1000
+        fsGroup: 1000
+      serviceAccountName: rsa-sa
+      containers:
+        - name: rsa
+          image: mas-rsa:latest
+          imagePullPolicy: Never
+
+          env:
+            - name: RSA_NAMESPACE
+              value: "workloads"
+            - name: RSA_DEPLOYMENT
+              value: "redis"
+            - name: RSA_DOMAIN
+              value: "worker"
+            - name: MQTT_HOST
+              value: "mosquitto.mas-system.svc.cluster.local"
+            - name: MQTT_PORT
+              value: "1883"
+            - name: MQTT_USERNAME
+              value: "rsa"
+            - name: MQTT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mqtt-credentials
+                  key: rsa-password
+            - name: MIN_REPLICAS
+              value: "1"
+            - name: MAX_REPLICAS
+              value: "3"
+            - name: CPU_REQUEST_PER_REPLICA
+              value: "50.0"
+            - name: MEMORY_REQUEST_PER_REPLICA
+              value: "32.0"
+            - name: SCALE_UP_DELTA_THRESHOLD
+              value: "0.15"
+            - name: CONFIDENCE_MARGIN_MIN
+              value: "0.15"
+            - name: CONFIDENCE_MARGIN_MAX
+              value: "0.30"
+            - name: LOW_PRESSURE_SUSTAIN_COUNT
+              value: "10"
+            - name: SCALE_DOWN_TARGET_UTILIZATION
+              value: "0.60"
+            - name: CRITICAL_CONFIRM_COUNT
+              value: "2"
+            - name: COOLDOWN_SECONDS
+              value: "60"
+            - name: MRA_SCRAPE_INTERVAL
+              value: "30"
+            - name: MRA_SUSPECTED_THRESHOLD
+              value: "3"
+            - name: MRA_CONFIRMED_THRESHOLD
+              value: "5"
+            - name: PFA_SUSPECTED_SECONDS
+              value: "1020"
+            - name: PFA_CONFIRMED_SECONDS
+              value: "1200"
+            - name: DOMAIN4_DB_PATH
+              value: "/mnt/kb/domain4/audit_log.db"
+            - name: DOMAIN5_DB_PATH
+              value: "/mnt/kb/domain5/coordination.db"
+            - name: HEARTBEAT_INTERVAL
+              value: "15"
+            - name: STARTUP_TIMEOUT
+              value: "120"
+
+          volumeMounts:
+            - name: kb-storage
+              mountPath: /mnt/kb
+
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+
+          livenessProbe:
+            exec:
+              command: ["python3", "-c", "import rsa.config; print('ok')"]
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+      volumes:
+        - name: kb-storage
+          persistentVolumeClaim:
+            claimName: kb-shared-pvc
+

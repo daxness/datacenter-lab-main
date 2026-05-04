@@ -1,0 +1,87 @@
+# mas-agent/k8s/base/rbac-rsa.yaml
+#
+# ServiceAccount + ClusterRole + ClusterRoleBinding for the RSA.
+#
+# The RSA is the ONLY agent in the MAS with authority to patch Deployment
+# replica counts. This RBAC is the enforcement mechanism for the
+# single-executor invariant: only rsa-sa can patch Deployments.
+# MRA and PFA ServiceAccounts explicitly do NOT have patch permission
+# (enforced in their own rbac.yaml).
+#
+# Permissions granted:
+#   apps/deployments — get, list, patch, update
+#     Required to: read current replica count (get) and modify it (patch).
+#
+#   autoscaling/horizontalpodautoscalers — get, list
+#     Required to: detect conflicting native HPAs at startup.
+#     The RSA does NOT create or delete HPAs — read-only.
+#
+#   configmaps (mas-policy, mas-topology) — get, watch
+#     Required to: read Domain 1 (pressure thresholds) and
+#     Domain 2 (per-replica resource costs, replica bounds) at startup.
+#     Scoped to the mas-system namespace only.
+#
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: rsa-sa
+  namespace: mas-system
+  labels:
+    mas-component: rsa
+---
+# ClusterRole: grants Deployment and HPA access across all namespaces.
+# The RSA must patch Deployments in the "workloads" namespace from a pod
+# running in "mas-system" — a Role scoped to mas-system would not reach
+# across namespaces, so ClusterRole is required here.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: rsa-deployment-patcher
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "patch", "update"]
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: rsa-deployment-patcher-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: rsa-deployment-patcher
+subjects:
+  - kind: ServiceAccount
+    name: rsa-sa
+    namespace: mas-system
+---
+# Role: ConfigMap read access scoped to mas-system only.
+# Separate from the ClusterRole because ConfigMaps only exist in mas-system.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: rsa-configmap-reader
+  namespace: mas-system
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["mas-policy", "mas-topology"]
+    verbs: ["get", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: rsa-configmap-reader-binding
+  namespace: mas-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: rsa-configmap-reader
+subjects:
+  - kind: ServiceAccount
+    name: rsa-sa
+    namespace: mas-system
+

@@ -1,0 +1,168 @@
+# mas-agent/k8s/base/rsa-nginx.yaml
+#
+# RSA instance managing the "nginx" deployment in namespace "workloads".
+#
+# Per-replica resource values sourced from domain2-topology.yaml:
+#   cpu_request_per_replica:    50m
+#   memory_request_per_replica: 32Mi
+#   cpu_limit_per_replica:      200m
+#   memory_limit_per_replica:   64Mi
+#   min_replicas: 1   max_replicas: 6
+#
+# The RSA subscribes to:
+#   /mas/workloads/nginx/mra/beliefs   (published by mra-nginx)
+#   /mas/workloads/nginx/pfa/forecasts (published by pfa-nginx)
+#
+# And publishes to:
+#   /mas/workloads/nginx/rsa/actions
+#   /mas/workloads/nginx/rsa/status
+#
+# imagePullPolicy: Never — image loaded into K3D nodes via:
+#   k3d image import mas-rsa:latest --cluster datacenter-lab
+#
+# The RSA mounts the shared KB PVC to write Domain 4 (audit log)
+# and Domain 5 (cooldown state, heartbeat registry).
+#
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rsa-nginx
+  namespace: mas-system
+  labels:
+    app: mas-rsa
+    monitored-deployment: nginx
+    monitored-namespace: workloads
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mas-rsa
+      monitored-deployment: nginx
+  template:
+    metadata:
+      labels:
+        app: mas-rsa
+        monitored-deployment: nginx
+        monitored-namespace: workloads
+    spec:
+      securityContext:
+        runAsUser: 1001
+        runAsGroup: 1000
+        fsGroup: 1000
+      serviceAccountName: rsa-sa
+      containers:
+        - name: rsa
+          image: mas-rsa:latest
+          imagePullPolicy: Never
+
+          env:
+            # ---- Deployment identity ----
+            - name: RSA_NAMESPACE
+              value: "workloads"
+            - name: RSA_DEPLOYMENT
+              value: "nginx"
+            - name: RSA_DOMAIN
+              value: "worker"
+
+            # ---- MQTT ----
+            - name: MQTT_HOST
+              value: "mosquitto.mas-system.svc.cluster.local"
+            - name: MQTT_PORT
+              value: "1883"
+            - name: MQTT_USERNAME
+              value: "rsa"
+            - name: MQTT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mqtt-credentials
+                  key: rsa-password
+
+            # ---- Replica bounds (from domain2-topology.yaml) ----
+            - name: MIN_REPLICAS
+              value: "1"
+            - name: MAX_REPLICAS
+              value: "6"
+
+            # ---- Per-replica resource cost (from domain2-topology.yaml) ----
+            # Used in sizing pipeline Little's Law calculation.
+            - name: CPU_REQUEST_PER_REPLICA
+              value: "50.0"       # millicores — matches nginx requests.cpu
+            - name: MEMORY_REQUEST_PER_REPLICA
+              value: "32.0"       # MiB — matches nginx requests.memory
+
+            # ---- Proactive path thresholds ----
+            - name: SCALE_UP_DELTA_THRESHOLD
+              value: "0.15"
+            - name: CONFIDENCE_MARGIN_MIN
+              value: "0.15"
+            - name: CONFIDENCE_MARGIN_MAX
+              value: "0.30"
+
+            # ---- Reactive scale-down ----
+            - name: LOW_PRESSURE_SUSTAIN_COUNT
+              value: "10"         # 10 × 30s = 5 minutes
+            - name: SCALE_DOWN_TARGET_UTILIZATION
+              value: "0.60"
+
+            # ---- Emergency path ----
+            - name: CRITICAL_CONFIRM_COUNT
+              value: "2"
+
+            # ---- Cooldown ----
+            - name: COOLDOWN_SECONDS
+              value: "60"
+
+            # ---- MRA peer monitoring ----
+            - name: MRA_SCRAPE_INTERVAL
+              value: "30"
+            - name: MRA_SUSPECTED_THRESHOLD
+              value: "3"          # 3 missed cycles = 90s
+            - name: MRA_CONFIRMED_THRESHOLD
+              value: "5"          # 5 missed cycles = 150s
+
+            # ---- PFA peer monitoring ----
+            - name: PFA_SUSPECTED_SECONDS
+              value: "1020"       # 17 minutes
+            - name: PFA_CONFIRMED_SECONDS
+              value: "1200"       # 20 minutes
+
+            # ---- Knowledge Base ----
+            - name: DOMAIN4_DB_PATH
+              value: "/mnt/kb/domain4/audit_log.db"
+            - name: DOMAIN5_DB_PATH
+              value: "/mnt/kb/domain5/coordination.db"
+
+            # ---- Lifecycle ----
+            - name: HEARTBEAT_INTERVAL
+              value: "15"
+            - name: STARTUP_TIMEOUT
+              value: "120"
+
+          volumeMounts:
+            - name: kb-storage
+              mountPath: /mnt/kb
+
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+
+          livenessProbe:
+            exec:
+              command:
+                - python3
+                - -c
+                - "import rsa.config; print('ok')"
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+      volumes:
+        - name: kb-storage
+          persistentVolumeClaim:
+            claimName: kb-shared-pvc
+
