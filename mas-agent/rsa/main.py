@@ -288,7 +288,7 @@ def run(config: RSAConfig) -> None:
         # ================================================================
         # REACTIVE SCALE-DOWN PATH — LOW pressure, 10-sample sustain
         # ================================================================
-        if pressure == "LOW":
+        if pressure in ("LOW", "NORMAL"):
             _consecutive_low += 1
 
             log.debug(

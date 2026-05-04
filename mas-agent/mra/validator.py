@@ -78,7 +78,7 @@ class Validator:
         range_failed = False
  
         if sample.cpu_usage_millicores is not None:
-            if not (0 <= sample.cpu_usage_millicores <= sample.cpu_limits_millicores):
+            if sample.cpu_usage_millicores < 0:
                 log.warning("validation_range_error",
                             metric="cpu", value=sample.cpu_usage_millicores,
                             limit=sample.cpu_limits_millicores,
@@ -94,9 +94,14 @@ class Validator:
                     "limit": sample.cpu_limits_millicores,
                 })
                 range_failed = True
+            elif sample.cpu_usage_millicores > sample.cpu_limits_millicores:
+                log.warning("validation_range_overflow",
+                            metric="cpu", value=sample.cpu_usage_millicores,
+                            limit=sample.cpu_limits_millicores,
+                            deployment=sample.deployment)
  
         if sample.memory_usage_MiB is not None:
-            if not (0 <= sample.memory_usage_MiB <= sample.memory_limits_MiB):
+            if sample.memory_usage_MiB < 0:
                 log.warning("validation_range_error",
                             metric="memory", value=sample.memory_usage_MiB,
                             limit=sample.memory_limits_MiB,
@@ -112,6 +117,11 @@ class Validator:
                     "limit": sample.memory_limits_MiB,
                 })
                 range_failed = True
+            elif sample.memory_usage_MiB > sample.memory_limits_MiB:
+                log.warning("validation_range_overflow",
+                            metric="memory", value=sample.memory_usage_MiB,
+                            limit=sample.memory_limits_MiB,
+                            deployment=sample.deployment)
  
         if range_failed:
             return ValidationResult(
