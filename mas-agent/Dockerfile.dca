@@ -1,0 +1,37 @@
+# Dockerfile.dca — Domain Coordinator Agent (DCA)
+#
+# Multi-stage build identical in structure to Dockerfile.rsa:
+#   Stage 1 (builder): install Python dependencies into /install
+#   Stage 2 (runtime): copy only the installed packages + source code
+#
+# The runtime image has no build tools (gcc, pip, etc.) — reduces
+# attack surface and image size.
+#
+# Build command (run from mas-agent/ directory):
+#   docker build -f Dockerfile.dca -t mas-dca:latest .
+#
+# Load into K3D (no registry needed):
+#   k3d image import mas-dca:latest --cluster datacenter-lab
+
+FROM python:3.11-slim AS builder
+
+WORKDIR /build
+COPY requirements.txt .
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+# ---- Runtime image ----
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Copy installed packages from the builder stage
+COPY --from=builder /install /usr/local
+
+# Copy DCA Python source package
+COPY dca/ ./dca/
+
+# Create a non-root user — uid 1001 matches MRA, PFA, RSA convention
+RUN useradd -r -u 1001 -g root dca-agent
+USER dca-agent
+
+CMD ["python3", "-m", "dca.main"]

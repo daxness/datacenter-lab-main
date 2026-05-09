@@ -1,0 +1,142 @@
+# mas-agent/k8s/base/dca-worker.yaml
+#
+# DCA instance managing the "worker" domain — the workloads namespace.
+#
+# One DCA instance per Kubernetes namespace (per domain). This instance
+# supervises the three MRA, three PFA, and three RSA instances that manage
+# the nginx, redis, and stress-ng deployments in the workloads namespace.
+#
+# Per the DCA specification Section 1:
+#   - Granularity: one DCA per namespace
+#   - Role: supervisory coordinator — not a sensor, predictor, or actuator
+#   - Hot-path independence: MRA→PFA→RSA pipeline operates fully independently
+#
+# The DCA does NOT manage nginx and redis unless their agents are running.
+# Currently only mra-stress-ng, pfa-stress-ng, rsa-stress-ng are active
+# (nginx and redis agents are scaled to zero replicas). The DCA is configured
+# to manage all three deployments but will only receive signals from
+# the active stress-ng agents. It will log heartbeat absences for nginx
+# and redis — this is expected and non-alarming.
+#
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dca-worker
+  namespace: mas-system
+  labels:
+    app: mas-dca
+    domain: worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mas-dca
+      domain: worker
+  template:
+    metadata:
+      labels:
+        app: mas-dca
+        domain: worker
+    spec:
+      securityContext:
+        runAsUser: 1001
+        runAsGroup: 1000
+        fsGroup: 1000
+      serviceAccountName: dca-sa
+      containers:
+        - name: dca
+          image: mas-dca:latest
+          imagePullPolicy: Never
+
+          env:
+            - name: DCA_DOMAIN_ID
+              value: "worker"
+            - name: DCA_NAMESPACE
+              value: "workloads"
+            - name: DCA_MANAGED_DEPLOYMENTS
+              value: "stress-ng"
+
+            - name: MQTT_HOST
+              value: "mosquitto.mas-system.svc.cluster.local"
+            - name: MQTT_PORT
+              value: "1883"
+            - name: MQTT_USERNAME
+              value: "dca"
+            - name: MQTT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mqtt-credentials
+                  key: dca-password
+
+            # ---- Failure detection thresholds ----
+            # MRA heartbeat interval = 30s (matches MRA scrape interval)
+            # 3 missed × 30s = 90s to trigger L1
+            - name: MRA_HEARTBEAT_INTERVAL
+              value: "30"
+            - name: MRA_MISSED_THRESHOLD
+              value: "3"
+
+            # PFA heartbeat interval = 30s
+            # 3 missed × 30s = 90s to trigger L1
+            - name: PFA_HEARTBEAT_INTERVAL
+              value: "30"
+            - name: PFA_MISSED_THRESHOLD
+              value: "3"
+
+            # RSA heartbeat interval = 15s (fastest cadence — only detection layer)
+            # 3 missed × 15s = 45s to trigger L1
+            - name: RSA_HEARTBEAT_INTERVAL
+              value: "15"
+            - name: RSA_MISSED_THRESHOLD
+              value: "3"
+
+            # Mode B recovery: 60s to wait for first post-restart heartbeat
+            - name: RECOVERY_TIMEOUT
+              value: "60"
+
+            # SA notification deduplication window: 300s (5 minutes)
+            - name: ESCALATION_SUPPRESSION_WINDOW
+              value: "300"
+
+            # Domain status report cadence: 1800s (30 minutes)
+            - name: STATUS_REPORT_INTERVAL
+              value: "1800"
+
+            # Knowledge Base paths (mounted from shared PVC)
+            - name: DOMAIN4_DB_PATH
+              value: "/mnt/kb/domain4/audit_log.db"
+            - name: DOMAIN5_DB_PATH
+              value: "/mnt/kb/domain5/coordination.db"
+
+            # DCA heartbeat to SA: every 15 seconds
+            - name: HEARTBEAT_INTERVAL
+              value: "15"
+
+            # Startup: wait up to 120s for infrastructure to be ready
+            - name: STARTUP_TIMEOUT
+              value: "120"
+
+          volumeMounts:
+            - name: kb-storage
+              mountPath: /mnt/kb
+
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+
+          livenessProbe:
+            exec:
+              command: ["python3", "-c", "import sys; sys.exit(0)"]
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+
+      volumes:
+        - name: kb-storage
+          persistentVolumeClaim:
+            claimName: kb-shared-pvc

@@ -1,0 +1,76 @@
+# mas-agent/k8s/base/rbac-dca.yaml
+#
+# ServiceAccount + ClusterRole + ClusterRoleBinding for the DCA.
+#
+# The DCA requires more Kubernetes API permissions than MRA and PFA because
+# it must restart agent pods (Mode B recovery). However, it requires FEWER
+# permissions than the RSA: it has no HPA patch authority and no Deployment
+# replica count authority — those remain exclusively with rsa-sa.
+#
+# Permissions granted:
+#
+#   apps/deployments — get, list, patch, update (in mas-system namespace only)
+#     Required to: trigger rolling restarts of MRA, PFA, and RSA pods.
+#     The PATCH here modifies the pod template annotation (restartedAt),
+#     NOT the replica count. Scoped to mas-system via RoleBinding, not ClusterRoleBinding,
+#     so the DCA cannot accidentally patch Deployments in the workloads namespace.
+#
+#   core/pods — get, list
+#     Required to: verify pod status after restart (confirm pod reached Running state).
+#
+#   configmaps (mas-policy, mas-topology) — get, watch
+#     Required to: read Domain 1 (policy thresholds) and Domain 2 (topology).
+#     Scoped to mas-system namespace only.
+#
+# Permissions explicitly NOT granted:
+#   - HPA patch/update (belongs exclusively to rsa-sa)
+#   - Deployment patch in workloads namespace (DCA only patches mas-system deployments)
+#   - Node or PersistentVolume access (not required)
+#
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: dca-sa
+  namespace: mas-system
+  labels:
+    mas-component: dca
+
+---
+# Role: Deployment patch authority scoped ONLY to mas-system namespace.
+# DCA restarts agent pods by patching the pod template annotation.
+# This Role is intentionally namespace-scoped (not ClusterRole) so the
+# DCA cannot reach Deployments in the workloads namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: dca-mas-system-role
+  namespace: mas-system
+rules:
+  # Rolling restart via annotation patch on MRA/PFA/RSA Deployments
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "patch", "update"]
+  # Pod status verification after restart
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  # Domain 1 and Domain 2 ConfigMap reads
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["mas-policy", "mas-topology"]
+    verbs: ["get", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: dca-mas-system-role-binding
+  namespace: mas-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: dca-mas-system-role
+subjects:
+  - kind: ServiceAccount
+    name: dca-sa
+    namespace: mas-system
