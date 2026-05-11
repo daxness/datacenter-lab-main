@@ -1,0 +1,155 @@
+# mas-agent/k8s/base/sa.yaml
+#
+# Supervision Agent (SA) Deployment + NodePort Service.
+#
+# The SA is a singleton — one Deployment with replicas: 1.
+# Unlike the MRA, PFA, and RSA (which have one instance per managed
+# deployment), there is only ever one SA in the cluster.
+#
+# The NodePort Service exposes the FastAPI web UI at port 32080 on every
+# cluster node, so the operator can reach it at:
+#   http://<node-ip>:32080/
+# In the K3D/WSL2 lab this is http://localhost:32080/ (via the k3d loadbalancer).
+# Note: Port 32080 must be added to k3d-config.yaml port mappings — see
+# the deployment instructions below.
+#
+# Environment variables: all SA configuration is passed via env vars, matching
+# the frozen-dataclass-reads-os.getenv pattern used by all other agents.
+#
+# Volume: the shared kb-storage PersistentVolumeClaim is mounted at /mnt/kb
+# so the SA can write Domain 4 audit records.
+#
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sa
+  namespace: mas-system
+  labels:
+    app: mas-sa
+    mas-component: sa
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mas-sa
+  template:
+    metadata:
+      labels:
+        app: mas-sa
+        mas-component: sa
+    spec:
+      securityContext:
+        runAsUser: 1001
+        runAsGroup: 1000
+        fsGroup: 1000
+      serviceAccountName: sa-sa
+      containers:
+        - name: sa
+          image: mas-sa:latest
+          imagePullPolicy: Never
+
+          env:
+            - name: SA_AGENT_ID
+              value: "SA:global"
+            - name: SA_DOMAIN_ID
+              value: "worker"
+            - name: MQTT_HOST
+              value: "mosquitto.mas-system.svc.cluster.local"
+            - name: MQTT_PORT
+              value: "1883"
+            - name: MQTT_USERNAME
+              value: "sa"
+            - name: MQTT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mqtt-credentials
+                  key: sa-password
+            - name: K8S_NAMESPACE
+              value: "mas-system"
+            - name: POLICY_CONFIGMAP
+              value: "mas-policy"
+            - name: OVERSIGHT_CONFIGMAP
+              value: "mas-oversight"
+            - name: TOPOLOGY_CONFIGMAP
+              value: "mas-topology"
+            - name: DOMAIN4_DB_PATH
+              value: "/mnt/kb/domain4/audit_log.db"
+            - name: DCA_MISSED_THRESHOLD
+              value: "3"
+            - name: DCA_HEARTBEAT_INTERVAL
+              value: "15"
+            - name: HEARTBEAT_INTERVAL
+              value: "15"
+            - name: STARTUP_TIMEOUT
+              value: "120"
+            - name: SA_API_PORT
+              value: "8080"
+            - name: SA_API_HOST
+              value: "0.0.0.0"
+
+          ports:
+            - name: web-ui
+              containerPort: 8080
+              protocol: TCP
+
+          volumeMounts:
+            - name: kb-storage
+              mountPath: /mnt/kb
+
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "300m"
+              memory: "256Mi"
+
+          # Readiness probe: check the FastAPI /healthz endpoint.
+          # The SA is not ready until the web UI is responding, which
+          # means the MQTT connection and Domain 1 load also completed
+          # (FastAPI starts only after Stage 1 in the startup sequence).
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 3
+
+          # Liveness probe: same endpoint, longer tolerance window.
+          # 30s initial delay gives the SA time to complete its full
+          # startup sequence (MQTT + Kubernetes API + Domain 1 load).
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+      volumes:
+        - name: kb-storage
+          persistentVolumeClaim:
+            claimName: kb-shared-pvc
+---
+# NodePort Service — exposes the FastAPI web UI to the operator.
+# Port 32080 on the cluster node maps to container port 8080.
+apiVersion: v1
+kind: Service
+metadata:
+  name: sa-ui
+  namespace: mas-system
+  labels:
+    app: mas-sa
+    mas-component: sa
+spec:
+  type: NodePort
+  selector:
+    app: mas-sa
+  ports:
+    - name: web-ui
+      protocol: TCP
+      port: 8080        # ClusterIP port (internal)
+      targetPort: 8080  # Container port
+      nodePort: 32080   # External port on every cluster node

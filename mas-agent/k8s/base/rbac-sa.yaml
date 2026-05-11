@@ -1,0 +1,68 @@
+# mas-agent/k8s/base/rbac-sa.yaml
+#
+# ServiceAccount + Roles + Bindings for the Supervision Agent (SA).
+#
+# The SA requires the following Kubernetes permissions:
+#
+#   configmaps (mas-policy, mas-oversight) — get, update, replace
+#     Required to: read Domain 1 on startup, write Domain 1 on policy override,
+#     and read/write Domain 6 (oversight version history + emergency stop events).
+#
+#   configmaps (mas-topology) — get
+#     Required to: read Domain 2 for escalation context and forced-action validation.
+#
+#   configmaps — create
+#     Required to: create the mas-oversight ConfigMap on first startup if it does
+#     not yet exist (the ConfigMap is NOT seeded by an infrastructure manifest,
+#     because only the SA may ever write it).
+#
+# All SA permissions are scoped to the mas-system namespace via a Role
+# (not a ClusterRole), because the SA only needs to access ConfigMaps in
+# that one namespace. Unlike the RSA, the SA never patches Deployments or
+# reads resources in the workloads namespace.
+#
+# No ClusterRole is required for the SA.
+#
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sa-sa
+  namespace: mas-system
+  labels:
+    mas-component: sa
+---
+# Role: ConfigMap read/write access scoped to mas-system.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: sa-configmap-manager
+  namespace: mas-system
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["mas-policy", "mas-oversight", "mas-topology"]
+    verbs: ["get", "watch"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["mas-policy", "mas-oversight"]
+    verbs: ["update", "patch"]
+  # The create verb cannot be scoped to a resourceName (Kubernetes limitation),
+  # so it is granted on all configmaps in the namespace but is used only to
+  # create mas-oversight on first SA startup.
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: sa-configmap-manager-binding
+  namespace: mas-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: sa-configmap-manager
+subjects:
+  - kind: ServiceAccount
+    name: sa-sa
+    namespace: mas-system

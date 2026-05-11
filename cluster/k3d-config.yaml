@@ -18,7 +18,9 @@ ports:
   - port: 32001:32001        # Prometheus NodePort (reserved for Phase 7)
     nodeFilters:
       - loadbalancer
-
+  - port: 32080:32080        # SA Web UI — ADD THIS
+    nodeFilters:
+      - loadbalancer
 # --- Volume mounts: expose WSL2 host directory into every cluster node ---
 # This makes /mnt/kb available inside ALL pods across ALL nodes.
 # Domain 4 (audit_log.db) and Domain 5 (coordination.db) live here.
